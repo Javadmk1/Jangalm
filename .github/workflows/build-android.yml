@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - "jungle_vet_godot_v2_5.zip"
-      - ".github/workflows/build-android.yml"
   workflow_dispatch:
 
 permissions:
