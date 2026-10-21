@@ -4,7 +4,8 @@ on:
   push:
     paths:
       - "jungle_vet_godot_v2_5.zip"
-      - "jungle_vet/**"
+      - "jungle_vet_godot_v2_6_debugged.zip"
+      - "jungle_vet/project.godot"
   workflow_dispatch:
 
 permissions:
@@ -25,15 +26,17 @@ jobs:
           set -euo pipefail
           if [ -f "jungle_vet/project.godot" ]; then
             PROJECT="$GITHUB_WORKSPACE/jungle_vet"
-          elif [ -f "jungle_vet_godot_v2_5.zip" ]; then
+          elif [ -f "jungle_vet_godot_v2_6_debugged.zip" ] || [ -f "jungle_vet_godot_v2_5.zip" ]; then
+            ARCHIVE="jungle_vet_godot_v2_6_debugged.zip"
+            [ -f "$ARCHIVE" ] || ARCHIVE="jungle_vet_godot_v2_5.zip"
             mkdir -p "$GITHUB_WORKSPACE/extracted"
-            unzip -o jungle_vet_godot_v2_5.zip -d "$GITHUB_WORKSPACE/extracted"
-            PROJECT="$GITHUB_WORKSPACE/extracted/jungle_vet"
+            unzip -o "$ARCHIVE" -d "$GITHUB_WORKSPACE/extracted"
+            PROJECT="$(find "$GITHUB_WORKSPACE/extracted" -name project.godot -type f -print -quit | xargs -r dirname)"
           else
-            echo "::error::No project found. Commit jungle_vet/ or upload jungle_vet_godot_v2_5.zip to the repository root."
+            echo "::error::No project found. Upload jungle_vet_godot_v2_6_debugged.zip to the repository root, or commit jungle_vet/project.godot with the project files."
             exit 1
           fi
-          test -f "$PROJECT/project.godot" || { echo "::error::project.godot not found in $PROJECT"; exit 1; }
+          test -n "$PROJECT" && test -f "$PROJECT/project.godot" || { echo "::error::project.godot not found after preparing the project"; exit 1; }
           echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           mkdir -p "$PROJECT/build"
           cat > "$PROJECT/export_presets.cfg" <<'EOF'
@@ -69,11 +72,24 @@ jobs:
           permissions/internet=false
           EOF
 
-      - name: Check project imports
+      - name: Import and parse project
         shell: bash
         run: |
           set -euo pipefail
           godot --headless --path "$PROJECT" --editor --quit
+
+      - name: Smoke-test main scene
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          godot --headless --path "$PROJECT" --quit-after 5 2>&1 | tee "$PROJECT/build/startup.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ] || grep -E "SCRIPT ERROR:|Parse Error:|ERROR: Failed loading resource|ERROR: Cannot open file" "$PROJECT/build/startup.log"; then
+            echo "::error::Project startup smoke test failed; see startup.log above."
+            exit 1
+          fi
 
       - name: Export Android APK
         shell: bash
