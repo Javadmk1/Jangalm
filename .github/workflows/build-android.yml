@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "jungle_vet_godot_v2_5.zip"
+      - "jungle_vet/**"
   workflow_dispatch:
 
 permissions:
@@ -18,20 +19,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract game project
+      - name: Prepare project
         shell: bash
         run: |
           set -euo pipefail
-          ZIP="jungle_vet_godot_v2_5.zip"
-          if [ ! -f "$ZIP" ]; then
-            echo "::error::Upload jungle_vet_godot_v2_5.zip to the repository root first."
+          if [ -f "jungle_vet/project.godot" ]; then
+            PROJECT="$GITHUB_WORKSPACE/jungle_vet"
+          elif [ -f "jungle_vet_godot_v2_5.zip" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/extracted"
+            unzip -o jungle_vet_godot_v2_5.zip -d "$GITHUB_WORKSPACE/extracted"
+            PROJECT="$GITHUB_WORKSPACE/extracted/jungle_vet"
+          else
+            echo "::error::No project found. Commit jungle_vet/ or upload jungle_vet_godot_v2_5.zip to the repository root."
             exit 1
           fi
-          unzip -o "$ZIP" -d extracted
-          PROJECT="extracted/jungle_vet"
-          test -f "$PROJECT/project.godot"
+          test -f "$PROJECT/project.godot" || { echo "::error::project.godot not found in $PROJECT"; exit 1; }
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
           mkdir -p "$PROJECT/build"
-
           cat > "$PROJECT/export_presets.cfg" <<'EOF'
           [preset.0]
           name="Android"
@@ -58,7 +62,7 @@ jobs:
           architectures/x86=false
           architectures/x86_64=false
           package/unique_name="com.jangalm.junglevet"
-          package/name="پزشک فوری جنگل"
+          package/name="Jungle Vet"
           package/signed=true
           screen/immersive_mode=true
           screen/orientation=1
@@ -69,26 +73,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --path extracted/jungle_vet --editor --quit
+          godot --headless --path "$PROJECT" --editor --quit
 
       - name: Export Android APK
         shell: bash
         run: |
           set -euo pipefail
-          godot --headless --path extracted/jungle_vet --export-debug "Android" extracted/jungle_vet/build/JungleVet-debug.apk
+          godot --headless --path "$PROJECT" --export-debug "Android" "$PROJECT/build/JungleVet-debug.apk"
 
       - name: Verify APK output
         shell: bash
         run: |
           set -euo pipefail
-          test -s extracted/jungle_vet/build/JungleVet-debug.apk
-          file extracted/jungle_vet/build/JungleVet-debug.apk
-          ls -lh extracted/jungle_vet/build/JungleVet-debug.apk
+          APK="$PROJECT/build/JungleVet-debug.apk"
+          test -s "$APK" || { echo "::error::Godot did not produce an APK"; exit 1; }
+          file "$APK"
+          ls -lh "$APK"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: JungleVet-debug-APK
-          path: extracted/jungle_vet/build/JungleVet-debug.apk
+          path: ${{ env.PROJECT }}/build/JungleVet-debug.apk
           if-no-files-found: error
           retention-days: 7
